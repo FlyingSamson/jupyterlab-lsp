@@ -11,7 +11,11 @@ Parts of this code are derived from:
 import asyncio
 import io
 import os
-from concurrent.futures import ThreadPoolExecutor
+import socket
+import time
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, wait
+from threading import Thread
 from typing import List, Optional, Text
 
 from tornado.concurrent import run_on_executor
@@ -24,9 +28,16 @@ from traitlets.config import LoggingConfigurable
 
 from .non_blocking import make_non_blocking
 
+class LspModeReaderBase():
+    """Base class for all Language Server Readers"""
+    pass
 
-class LspStdIoBase(LoggingConfigurable):
-    """Non-blocking, queued base for communicating with stdio Language Servers"""
+class LspModeWriterBase():
+    """Base class for all Language Server Writers"""
+    pass
+
+class LspRawIoBase(LoggingConfigurable):
+    """Non-blocking, queued base for communicating with Language Servers comunicating through an io.RawIOBase stream"""
 
     executor = None
 
@@ -48,8 +59,8 @@ class LspStdIoBase(LoggingConfigurable):
         self.log.debug("%s closed", self)
 
 
-class LspStdIoReader(LspStdIoBase):
-    """Language Server stdio Reader
+class LspRawIoReader(LspRawIoBase, LspModeReaderBase):
+    """Language Server Reader baseclass reading from an io.RawIOBase stream
 
     Because non-blocking (but still synchronous) IO is used, rudimentary
     exponential backoff is used.
@@ -180,8 +191,8 @@ class LspStdIoReader(LspStdIoBase):
             return ""
 
 
-class LspStdIoWriter(LspStdIoBase):
-    """Language Server stdio Writer"""
+class LspRawIoWriter(LspRawIoBase, LspModeWriterBase):
+    """Language Server Writer baseclass writing to an io.RawIOBase stream"""
 
     async def write(self) -> None:
         """Write to a Language Server until it closes"""
@@ -200,3 +211,62 @@ class LspStdIoWriter(LspStdIoBase):
     def _write_one(self, message) -> None:
         self.stream.write(message)
         self.stream.flush()
+
+
+class LspStdIoReader(LspRawIoReader):
+    """Language Server stdio Reader"""
+    pass
+
+class LspStdIoWriter(LspRawIoWriter):
+    """Language Server stdio Writer"""
+    pass
+        
+class TcpConnection(LoggingConfigurable):
+    """Wrapper representing a TCP connection via file streams"""
+
+    sock = Instance(
+        socket.socket, help="the tcp socket"
+    )  # type: socket.socket
+
+    stream = Instance(
+        io.RawIOBase, help="the stream to read/write"
+    )  # type: io.RawIOBase
+
+
+    def __init__(self, host, port, **kwargs):
+        super().__init__(**kwargs)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.stream = self._try_connect(host, port, "rw")
+
+    def _try_connect(self, host, port, mode, retries=12, sleep=5.0):
+        server = '{}:{}'.format(host, port)
+
+        tries = 0
+        while tries < retries:
+            tries = tries + 1
+            try:
+                server_address = (host, port)
+                self.sock.connect(server_address)
+                return self.sock.makefile("b" + mode, buffering=0)                
+            except ConnectionRefusedError:
+                if tries < retries:
+                    self.log.warning('Connection to server {} refused! Attempt {}/{}. Retrying in {}s'.format(server, tries, retries, sleep))
+                    time.sleep(sleep)
+                else:
+                    self.log.warning('Connection to server {} refused! Attempt {}/{}.'.format(server, tries, retries))    
+                    
+        raise ConnectionRefusedError("Unable to connect to server {}".format(server))
+    
+    def close(self):
+        sock.close()
+
+    
+class LspTcpReader(LspRawIoReader):
+    """Language Server tcp Reader"""
+    pass
+
+class LspTcpWriter(LspRawIoWriter):
+    """Language Server tcp Writer"""
+    pass
+
+        

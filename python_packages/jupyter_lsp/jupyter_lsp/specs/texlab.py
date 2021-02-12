@@ -15,4 +15,5 @@ class Texlab(ShellSpec):
         install=dict(conda="conda install -c conda-forge texlab chktex"),
         config_schema=load_config_schema(key),
         env=dict(RUST_BACKTRACE="1"),
+        mode="stdio",
     )

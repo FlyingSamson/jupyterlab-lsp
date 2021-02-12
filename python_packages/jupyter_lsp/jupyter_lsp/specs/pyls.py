@@ -33,4 +33,5 @@ class PythonLanguageServer(PythonModuleSpec):
         ],
         config_schema=load_config_schema(key),
         env=dict(PYTHONUNBUFFERED="1"),
+        mode="stdio",
     )

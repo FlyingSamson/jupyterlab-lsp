@@ -16,4 +16,5 @@ class JediLanguageServer(ShellSpec):
             conda="conda install -c conda-forge jedi-language-server",
         ),
         env=dict(PYTHONUNBUFFERED="1"),
+        mode="stdio",
     )

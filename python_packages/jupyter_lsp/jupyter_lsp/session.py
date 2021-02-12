@@ -33,8 +33,9 @@ class LanguageServerSession(LoggingConfigurable):
     process = Instance(
         subprocess.Popen, help="the language server subprocess", allow_none=True
     )
-    writer = Instance(stdio.LspStdIoWriter, help="the JSON-RPC writer", allow_none=True)
-    reader = Instance(stdio.LspStdIoReader, help="the JSON-RPC reader", allow_none=True)
+    writer = Instance(stdio.LspModeWriterBase, help="the JSON-RPC writer", allow_none=True)
+    reader = Instance(stdio.LspModeReaderBase, help="the JSON-RPC reader", allow_none=True)
+    tcp_con = Instance(stdio.TcpConnection, help="the tcp connection", allow_none=True)
     from_lsp = Instance(
         Queue, help="a queue for string messages from the server", allow_none=True
     )
@@ -61,8 +62,8 @@ class LanguageServerSession(LoggingConfigurable):
 
     def __repr__(self):  # pragma: no cover
         return (
-            "<LanguageServerSession(" "language_server={language_server}, argv={argv})>"
-        ).format(language_server=self.language_server, **self.spec)
+            "<LanguageServerSession(" "language_server={language_server}, mode={modeV}, argv={argv})>"
+        ).format(language_server=self.language_server, modeV=self.spec["mode"], **self.spec)
 
     def to_json(self):
         return dict(
@@ -83,6 +84,8 @@ class LanguageServerSession(LoggingConfigurable):
         self.status = SessionStatus.STARTING
         self.init_queues()
         self.init_process()
+        if self.spec["mode"] == "tcp":
+            self.init_tcp_connection()
         self.init_writer()
         self.init_reader()
 
@@ -102,6 +105,9 @@ class LanguageServerSession(LoggingConfigurable):
         if self.process:
             self.process.terminate()
             self.process = None
+        if self.tcp_con:
+            self.tcp_con.close()
+            self.tcp_con = None
         if self.reader:
             self.reader.close()
             self.reader = None
@@ -140,6 +146,9 @@ class LanguageServerSession(LoggingConfigurable):
             bufsize=0,
         )
 
+    def init_tcp_connection(self):
+        self.tcp_con = stdio.TcpConnection('127.0.0.1', 6536)
+
     def init_queues(self):
         """create the queues"""
         self.from_lsp = Queue()
@@ -147,15 +156,32 @@ class LanguageServerSession(LoggingConfigurable):
 
     def init_reader(self):
         """create the stdout reader (from the language server)"""
-        self.reader = stdio.LspStdIoReader(
-            stream=self.process.stdout, queue=self.from_lsp, parent=self
-        )
+        mode = self.spec["mode"]
+        if mode == "stdio":
+            self.reader = stdio.LspStdIoReader(
+                stream=self.process.stdout, queue=self.from_lsp, parent=self
+            )
+        elif mode == "tcp":
+            self.reader = stdio.LspTcpReader(
+                stream=self.tcp_con.stream, queue=self.from_lsp, parent=self
+            )
+        else:
+            raise ValueError("Unknown mode " + mode + " encountered!")
+            
 
     def init_writer(self):
         """create the stdin writer (to the language server)"""
-        self.writer = stdio.LspStdIoWriter(
-            stream=self.process.stdin, queue=self.to_lsp, parent=self
-        )
+        mode = self.spec["mode"]
+        if mode == "stdio":
+            self.writer = stdio.LspStdIoWriter(
+                stream=self.process.stdin, queue=self.to_lsp, parent=self
+            )
+        elif mode == "tcp":
+            self.writer = stdio.LspTcpWriter(
+                stream=self.tcp_con.stream, queue=self.to_lsp, parent=self
+            )
+        else:
+            raise ValueError("Unknown mode " + mode + " encountered!")
 
     def substitute_env(self, env, base):
         final_env = copy(os.environ)

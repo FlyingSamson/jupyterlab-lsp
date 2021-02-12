@@ -33,4 +33,5 @@ class JavascriptTypescriptLanguageServer(NodeModuleSpec):
             yarn="yarn add --dev {}".format(key),
             jlpm="jlpm add --dev {}".format(key),
         ),
+        mode="stdio",
     )

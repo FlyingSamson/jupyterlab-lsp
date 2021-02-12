@@ -26,4 +26,5 @@ class RLanguageServer(ShellSpec):
             cran=f'install.packages("{package}")',
             conda="conda install -c conda-forge r-languageserver",
         ),
+        mode="stdio",
     )

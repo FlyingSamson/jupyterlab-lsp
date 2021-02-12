@@ -23,4 +23,5 @@ class JuliaLanguageServer(ShellSpec):
             issues="https://github.com/julia-vscode/LanguageServer.jl/issues",
         ),
         install=dict(julia='using Pkg; Pkg.add("LanguageServer")'),
+        mode="stdio",
     )
